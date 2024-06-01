@@ -1,0 +1,232 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+# Dada2 Paket, Kütüphasinin Yüklenmesi ve Versiyon Kontrolü
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  
+    install.packages("BiocManager")
+
+BiocManager::install("dada2", version = "3.18", force = TRUE)
+
+```
+
+```{r}
+
+library(dada2); packageVersion("dada2")
+
+```
+
+```{r}
+
+data <- paste("C:/Users/user/Desktop/özelçalışma/örnekler", sep = ' ' )
+
+list.files(data)
+
+```
+
+# İleri ve Geri Okumların Tanımlanması
+
+```{r}
+
+dataF <- sort(list.files(data, pattern="_R1.fastq", full.names = TRUE))
+
+dataR <- sort(list.files(data, pattern="_R2.fastq", full.names = TRUE))
+
+```
+
+# Örneklerin İsimlerinin Tanımlanması ve Kontrol Edilmesi
+
+```{r}
+
+list.sample.names <- sapply(strsplit(basename(dataF), "_"), `[`, 1)
+
+list.sample.names
+
+```
+
+# İleri Okumaların Kalite Kontrolü
+
+```{r}
+
+plotQualityProfile(dataF[1:3])
+
+plotQualityProfile(dataR[1:3])
+
+```
+
+# Filtrelenen Okumların Kaydedileceği Klasörün Tanımlanması
+
+```{r}
+
+filt.dataF <- file.path(data, "filtered", paste0(list.sample.names, "_F_filt.fastq.gz"))
+
+filt.dataR <- file.path(data, "filtered", paste0(list.sample.names, "_R_filt.fastq.gz"))	
+
+```
+
+```{r}
+
+names(filt.dataF) <- list.sample.names
+
+names(filt.dataR) <- list.sample.names
+
+```
+
+# Okumaların Filtrelenmesi
+
+```{r}
+out <- filterAndTrim(dataF, filt.dataF, dataR, filt.dataR, truncLen = c(290,275), maxN = 0, maxEE = c(2,2), truncQ = 2, rm.phix = TRUE, compress = TRUE, multithread = FALSE)
+```
+
+```{r}
+
+head(out)
+
+```
+
+# Okumalarda Hata Oranının Tespit Edilmesi
+
+```{r}
+
+errF <- learnErrors(filt.dataF, multithread=TRUE)
+
+errR <- learnErrors(filt.dataR, multithread=TRUE)
+
+```
+
+# Hata oranlarının grafiklenmesi
+
+```{r}
+
+plotErrors(errF, nominalQ=TRUE)
+
+plotErrors(errR, nominalQ=TRUE)
+
+```
+
+#Okumalardaki Özgül Dizilerin Tespit Edilmesi
+
+```{r}
+
+dadaF <- dada(filt.dataF, err=errF, multithread=TRUE)
+
+dadaR <- dada(filt.dataR, err=errR, multithread=TRUE)
+
+
+```
+
+# İleri ve Geri Okumların Birleştirilmesi ve Kontrol Edilmesi
+
+```{r}
+
+merge.reads <- mergePairs(dadaF, filt.dataF, dadaR, filt.dataR, verbose=TRUE)
+
+head(merge.reads[[1]])
+```
+
+#Dizi Tablolarının Oluşturulması
+
+```{r}
+
+seqtab <- makeSequenceTable(merge.reads)
+
+dim(seqtab)
+
+table(nchar(getSequences(seqtab)))
+      
+
+```
+
+# Kimerik Okumaların Uzaklaştırması
+
+```{r}
+
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+
+```
+
+```{r}
+
+dim(seqtab.nochim)
+
+```
+
+```{r}
+
+sum(seqtab.nochim)/sum(seqtab)
+
+```
+
+# Dada2deki işlem basamakları sırasında okuma sayılarının nasıl değiştiğinin gösterilmesi
+
+```{r}
+
+getN <- function(x) sum(getUniques(x))
+
+track.nbr.reads <- cbind(out, sapply(dadaF, getN), sapply(dadaR, getN), sapply(merge.reads, getN), rowSums(seqtab.nochim))
+
+colnames(track.nbr.reads) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+
+rownames(track.nbr.reads) <- list.sample.names
+
+head(track.nbr.reads)
+
+
+```
+
+# Okumaların Taksonomik Birimlere Atanması
+
+```{r}
+taxa <- assignTaxonomy(seqtab.nochim, paste("C:/Users/user/Desktop/özelçalışma/RefSeq-RDP16S_v3_May2018.fa", sep=''), multithread=TRUE)
+
+
+
+```
+
+# Taksonomik Atamalar Sonrasında Sonuçların Gözlenmesi
+
+```{r}
+
+taxa.print <- taxa 
+
+rownames(taxa.print) <- NULL
+
+head(taxa.print)
+
+```
+
+# Elde Edilen Dosyanın Kaydedilmesi
+
+```{r}
+
+write.csv(taxa, file="ASVs_taxonomy.csv")
+
+saveRDS(taxa, "ASVs_taxonomy.rds")
+
+```
+
+# ASV Dosyalarının Kaydedilmesi
+
+```{r}
+
+asv_headers <- vector(dim(seqtab.nochim)[2], mode="character")
+
+count.asv.tab <- t(seqtab.nochim)
+
+row.names(count.asv.tab) <- sub(">", "", asv_headers)
+
+write.csv(count.asv.tab, file="ASVs_counts.csv")
+
+saveRDS(count.asv.tab, file="ASVs_counts.rds")
+
+```
+
+
+
+
+
